@@ -67,7 +67,6 @@ class ControllerApp(app_manager.RyuApp):
         This handler is automatically triggered when a host sends an ARP response.
         """
         # TODO:  Update network topology and flow rules
-        #    print("host_add")
         # print(ev)
         host = ev.host
         self.hosts.append(host)
@@ -145,7 +144,8 @@ class ControllerApp(app_manager.RyuApp):
                 ofctl.send_arp(arp_opcode=ARP_REPLY, vlan_id=VLANID_NONE, dst_mac=src_mac, sender_mac=dst_mac,
                                sender_ip=dst_ip, target_mac=src_mac, target_ip=src_ip, src_port=OFPP_CONTROLLER,
                                output_port=inPort)
-                self.print_path(src, dst, src_mac, dst_mac)
+                if dst_mac != '00:00:00:00:00:00':
+                    self.print_path(src, dst, src_mac, dst_mac)
             else:
                 pass
             return
@@ -188,9 +188,9 @@ class ControllerApp(app_manager.RyuApp):
     def print_path(self, src, dst, src_mac, dst_mac):
         path, path_len = self.network.shortest_path(src, dst)
         if path_len == -1:
-            print('Can not reach fromfrom host_%s to host_%s' % (src_mac, dst_mac))
+            print('Can not reach from host_%s to host_%s' % (src_mac, dst_mac))
             return
-        print('The distance from host_%s to host_%s : %s' % (src_mac, dst_mac, path_len))
+        print('The distance from host_%s to host_%s : %s' % (src_mac, dst_mac, path_len+1))
         path_str = ''
         for switch in path:
             path_str = path_str + 'switch_%s -> ' % switch
