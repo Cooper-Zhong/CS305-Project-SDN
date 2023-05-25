@@ -19,7 +19,7 @@ from ryu.topology.switches import Port, Host
 
 from ofctl_utilis import OfCtl, VLANID_NONE, OfCtl_v1_0
 from dhcp import DHCPServer
-from Graph import Graph
+from Graph import Graph, MAX_V
 
 
 class MyMap:
@@ -45,8 +45,8 @@ class ControllerApp(app_manager.RyuApp):
         """
         Event handler indicating a switch has come online.
         """
-        # print("switch_add")
-        #    print(ev)
+        print("switch_add")
+        print(ev)
         switch = ev.switch
         self.network.add_node(switch.dp.id)
         self.update_topology()
@@ -56,6 +56,8 @@ class ControllerApp(app_manager.RyuApp):
         """
         Event handler indicating a switch has been removed
         """
+        print("switch_delete")
+        print(ev)
         switch = ev.switch
         self.network.delete_node(switch.dp.id)
         self.update_topology()
@@ -67,7 +69,8 @@ class ControllerApp(app_manager.RyuApp):
         This handler is automatically triggered when a host sends an ARP response.
         """
         # TODO:  Update network topology and flow rules
-        # print(ev)
+        print("host_add")
+        print(ev)
         host = ev.host
         self.hosts.append(host)
         self.update_topology()
@@ -78,8 +81,8 @@ class ControllerApp(app_manager.RyuApp):
         Event handler indicating a link between two switches has been added
         """
         # TODO:  Update network topology and flow rules
-        #   print("link_add")
-        # print(ev)
+        print("link_add")
+        print(ev)
         link = ev.link
         self.network.add_edge(link.src.dpid, link.dst.dpid, 1, link.src.port_no)
         self.update_topology()
@@ -90,6 +93,8 @@ class ControllerApp(app_manager.RyuApp):
         Event handler indicating when a link between two switches has been deleted
         """
         # TODO:  Update network topology and flow rules
+        print("link_delete")
+        print(ev)
         link = ev.link
         self.network.delete_edge(link.src.dpid, link.dst.dpid)
         self.update_topology()
@@ -101,7 +106,8 @@ class ControllerApp(app_manager.RyuApp):
         This includes links for hosts as well as links between switches.
         """
         # TODO:  Update network topology and flow rules
-
+        print("port_modify")
+        print(ev)
         src = ev.port.dpid
         port = ev.port.port_no
         self.network.port_on[src][port] = ev.port.is_live()
@@ -144,8 +150,8 @@ class ControllerApp(app_manager.RyuApp):
                 ofctl.send_arp(arp_opcode=ARP_REPLY, vlan_id=VLANID_NONE, dst_mac=src_mac, sender_mac=dst_mac,
                                sender_ip=dst_ip, target_mac=src_mac, target_ip=src_ip, src_port=OFPP_CONTROLLER,
                                output_port=inPort)
-                if dst_mac != '00:00:00:00:00:00':
-                    self.print_path(src, dst, src_mac, dst_mac)
+                #if dst_mac != '00:00:00:00:00:00':
+                #    self.print_path(src, dst, src_mac, dst_mac)
             else:
                 pass
             return
@@ -167,6 +173,10 @@ class ControllerApp(app_manager.RyuApp):
         for datapath in datapaths:
             ofctl = OfCtl_v1_0(datapath, self.logger)
             ofctl.delete_flow(0, 0)
+        self.network.paths = [[{} for i in range(MAX_V)] for j in range(MAX_V)]
+        for node in self.network.nodes:
+            self.network.dijkstra(node)
+        #self.network.floyd()
 
         for host in self.hosts:
             dst_mac = host.mac
@@ -184,14 +194,23 @@ class ControllerApp(app_manager.RyuApp):
                 else:
                     actions = [ofp_parser.OFPActionOutput(host.port.port_no)]
                     ofctl.set_flow(0, 0, dl_dst=dst_mac, actions=actions)
+        for src in self.network.nodes:
+            for dst in self.network.nodes:
+                if src == dst:
+                    continue
+                self.print_path(src, dst)
+        print()
 
-    def print_path(self, src, dst, src_mac, dst_mac):
+    def print_path(self, src, dst):
         path, path_len = self.network.shortest_path(src, dst)
         if path_len == -1:
-            print('Can not reach from host_%s to host_%s' % (src_mac, dst_mac))
+            print('Can not reach from switch_%s to switch_%s' % (src, dst))
             return
-        print('The distance from host_%s to host_%s : %s' % (src_mac, dst_mac, path_len+1))
-        path_str = ''
+        print('The distance from switch_%s to switch_%s : %s' % (src, dst, path_len-1))
+        path_str = 'Path : '
         for switch in path:
-            path_str = path_str + 'switch_%s -> ' % switch
-        print('Path: host_%s -> %s host_%s' % (src_mac, path_str, dst_mac))
+            if switch == path[len(path)-1]:
+                path_str = path_str + 'switch_%s' %switch
+            else:
+                path_str = path_str + 'switch_%s -> ' % switch
+        print(path_str)
