@@ -6,17 +6,20 @@ from ryu.lib.packet import ethernet
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import udp
 from ryu.lib.packet import dhcp
+import socket
 import eventlet
+
 
 class Config():
     controller_macAddr = '7e:49:b3:f0:f9:99'  # don't modify, a dummy mac address for fill the mac enrty
     dns = '8.8.8.8'  # don't modify, just for the dns entry
 
-    start_ip = '192.168.1.2'  # can be modified
-    end_ip = '192.168.1.100'  # can be modified
-    netmask = '255.255.255.0'  # can be modified
+    start_ip = '192.168.1.10'  # can be modified
+    end_ip = '192.168.1.15'  # can be modified
+    netmask = '255.255.0.0'  # can be modified
     hostname = 'hostname'
-    dhcp_server = '192.168.1.154' # nono
+    dhcp_server = '192.168.1.154'  # nono
+    broadcast = '192.168.1.255'
     # routes = '10.27.255.254'
 
     # You may use above attributes to configure your DHCP server.
@@ -31,6 +34,20 @@ class DHCPServer():
     dns = Config.dns
     hostname = Config.hostname
     dhcp_server = Config.dhcp_server
+    broadcast = Config.broadcast
+    # get the ip pool
+    ip_pool = []
+    arr1 = start_ip.split('.')
+    begin = int(''.join(arr1[3]))
+    arr2 = end_ip.split('.')
+    end = int(''.join(arr2[3]))
+    for i in range(begin, end + 1):
+        ip = start_ip[:-len(arr1[3])] + str(i)
+        if ip not in ip_pool:
+            ip_pool.append(ip)
+    ip_pool.sort()
+    print(ip_pool)
+
     # routes = Config.routes
 
     @classmethod
@@ -39,23 +56,40 @@ class DHCPServer():
         # 获取 DHCP Discover 消息的各个协议头
         print("ack")
         req_eth = pkt.get_protocol(ethernet.ethernet)
-        req_ipv4 = pkt.get_protocol( ipv4.ipv4)
-        req_udp = pkt.get_protocol( udp.udp)
-        req = pkt.get_protocol( dhcp.dhcp)
+        req_ipv4 = pkt.get_protocol(ipv4.ipv4)
+        req_udp = pkt.get_protocol(udp.udp)
+        req = pkt.get_protocol(dhcp.dhcp)
         # 将 DHCP Discover 消息的 Option 53（消息类型）改为 Acknowledge（5）
         # Option 51（租约时间）改为 8640 秒（2 小时 24 分钟）
         # 客户端会根据响应消息的消息类型（Option 53）来确定接下来的步骤。
         # 将消息类型设置为 Acknowledge（5）可以让客户端知道它收到的是一个 DHCP Acknowledge 消息。
+        requested_ip = '0.0.0.0'
         options = req.options
         for i in options.option_list:
-            if i.tag == 53:
+            if i.tag == 50:
+                requested_ip = socket.inet_ntoa(i.value)
+            # remove msg type, request ip, host name, parameter list
+            if i.tag == 53 or i.tag == 50 or i.tag == 12 or i.tag == 55:
                 options.option_list.remove(i)
         # req.options.option_list.remove(
         #     next(opt for opt in req.options.option_list if opt.tag == 53))
-        options.option_list.insert(0, dhcp.option(tag=51, value='0xffffffff'.encode()))
-        options.option_list.insert(
-            # 0, dhcp.option(tag=53, value='05'.decode('hex')))
-            0, dhcp.option(tag=53, value=binascii.a2b_hex('05')))
+        print(requested_ip)
+        netmask_option = dhcp.option(tag=1, value=socket.inet_aton(cls.netmask))
+        broadcast_option = dhcp.option(tag=28, value=socket.inet_aton(cls.broadcast))
+        lease_time = 6000
+        lease_time_option = dhcp.option(tag=51, value=lease_time.to_bytes(4, byteorder='big'))
+        msg_type_option = dhcp.option(tag=53, value=binascii.a2b_hex('05'))
+        options.option_list.insert(0, netmask_option)
+        options.option_list.insert(0, broadcast_option)
+        options.option_list.insert(0, lease_time_option)
+        options.option_list.insert(0, msg_type_option)
+
+        # options.option_list.insert(0, dhcp.option(tag=1, value=socket.inet_aton(cls.netmask)))
+        # options.option_list.insert(0, dhcp.option(tag=28, value=socket.inet_aton(cls.broadcast)))  # broadcast
+        # options.option_list.insert(0, dhcp.option(tag=51, value='000f'.encode()))  # lease time
+        # options.option_list.insert(
+        #     # 0, dhcp.option(tag=53, value='05'.decode('hex')))
+        #     0, dhcp.option(tag=53, value=binascii.a2b_hex('05')))  # msg type
 
         # 组装 DHCP Acknowledge 消息
         ack_pkt = packet.Packet()
@@ -67,13 +101,15 @@ class DHCPServer():
         ack_pkt.add_protocol(dhcp.dhcp(op=2,
                                        chaddr=req_eth.src,
                                        # ciaddr=cls.start_ip,
-                                       siaddr=cls.dhcp_server,
+                                       # siaddr=cls.dhcp_server,
                                        boot_file=req.boot_file,
-                                       yiaddr=cls.start_ip,
+                                       yiaddr=requested_ip,
                                        xid=req.xid,
                                        # sname=cls.dns,
-                                       options=req.options))
-        print("ackyou"+ str(ack_pkt))
+                                       # options=req.options
+                                       options=options
+                                       ))
+        print("ackyou" + str(ack_pkt))
         return ack_pkt
 
     @classmethod
@@ -89,52 +125,90 @@ class DHCPServer():
         # 从DHCP options中删除标记为xx的option
         options = disc.options
         for i in options.option_list:
-            if i.tag == 55 or i.tag == 53 or i.tag == 12:
+            if i.tag == 55 or i.tag == 53 or i.tag == 12 or i.tag == 50:
                 options.option_list.remove(i)
         # 在DHCP options的开头添加一个标记为xx的option，该option包含xxx
         # print(dir(cls))
-        options.option_list.insert(0, dhcp.option(1,cls.netmask.encode()))
-        options.option_list.insert(
-            # 0, dhcp.option(tag=3, value=cls.dhcp_server))
-            0, dhcp.option(3,cls.dhcp_server.encode()))
-#router ip but default?
-        options.option_list.insert(0, dhcp.option(tag=6, value=cls.dns.encode())) #dns
-        options.option_list.insert(
-            0, dhcp.option(tag=12, value=cls.hostname.encode()))
-# no 12
+        # options.option_list.insert(0, dhcp.option(tag=1, value=cls.netmask.encode()))
+        # options.option_list.insert(
+        #     # 0, dhcp.option(tag=3, value=cls.dhcp_server))
+        #     0, dhcp.option(3, cls.dhcp_server.encode()))
+        # router ip but default?
+        # options.option_list.insert(0, dhcp.option(tag=6, value=cls.dns.encode()))  # dns
+        # options.option_list.insert(
+        #     0, dhcp.option(tag=12, value=cls.hostname.encode()))
+        # no 12
         # 在DHCP options的开头添加一个标记为xx的option，该option表示消息类型，值为2(表示DHCP Offer)
-        options.option_list.insert(
-            # 0, dhcp.option(tag=53, value='02'.decode('hex')))
-            # 0, dhcp.option(tag=53, value=bytes.fromhex('02')))
-            0, dhcp.option(tag=53, value=binascii.a2b_hex('02')))
-# length=1 but 02?
-        options.option_list.insert(
-            0, dhcp.option(tag=54, value=cls.dhcp_server.encode()))
-# dhcp server address but default?
+        # options.option_list.insert(
+        # 0, dhcp.option(tag=53, value='02'.decode('hex')))
+        # 0, dhcp.option(tag=53, value=bytes.fromhex('02')))
+        # 0, dhcp.option(tag=53, value=binascii.a2b_hex('02')))
+        # length=1 but 02?
+        # options.option_list.insert(
+        #     0, dhcp.option(tag=54, value=cls.dhcp_server.encode()))
+        # dhcp server address but default?
+        # options.option_list.insert(0, dhcp.option(tag=1, value=cls.netmask.encode()))
+
+        # cooper !!
+        netmask_option = dhcp.option(tag=1, value=socket.inet_aton(cls.netmask))
+        dhcp_server = dhcp.option(tag=54, value=socket.inet_aton(cls.dhcp_server))
+        dns = dhcp.option(tag=6, value=socket.inet_aton(cls.dns))
+        # hostname = dhcp.option(tag=12, value=cls.hostname.encode())
+        broadcast_option = dhcp.option(tag=28, value=socket.inet_aton(cls.broadcast))
+        lease_time = 6000
+        lease_time_option = dhcp.option(tag=51, value=lease_time.to_bytes(4, byteorder='big'))
+        msg_type_option = dhcp.option(tag=53, value=binascii.a2b_hex('02'))  # offer
+
+        options.option_list.insert(0, netmask_option)
+        options.option_list.insert(0, broadcast_option)
+        options.option_list.insert(0, lease_time_option)
+        options.option_list.insert(0, msg_type_option)
+        options.option_list.insert(0, dhcp_server)
+        options.option_list.insert(0, dns)
+        # options.option_list.insert(0, hostname)
 
         offer_pkt = packet.Packet()  # create new package
         # 将以太网帧、IPv4报文、UDP报文和DHCP报文依次添加到报文中。
         offer_pkt.add_protocol(ethernet.ethernet(ethertype=disc_eth.ethertype, dst=disc_eth.src, src=cls.hardware_addr))
         offer_pkt.add_protocol(ipv4.ipv4(dst=disc_ipv4.dst, src=cls.dhcp_server, proto=disc_ipv4.proto))
         offer_pkt.add_protocol(udp.udp(src_port=67, dst_port=68))
-        # ip++
-        arr = cls.start_ip.split('.')
-        num = int(''.join(arr[3]))
-        length = len(arr[3])
-        num = num + 1
-        cls.start_ip = cls.start_ip[:-length] + str(num)
-        offer_pkt.add_protocol(dhcp.dhcp(op=2,
-                                         chaddr=disc_eth.src,
-                                         # htype=1,
-                                         # flags=1,
-                                         siaddr=cls.dhcp_server,
-                                         boot_file=disc.boot_file,
-                                         yiaddr=cls.start_ip,
-                                         # chaddr=cls.hardware_addr,
-                                         xid=disc.xid,
-                                         # sname=cls.dns,
-                                         options=options))
-        print("offeryou" ,str(offer_pkt))
+
+        if len(cls.ip_pool) == 0:  # no available ip
+            print("no available ip")
+            offer_pkt.add_protocol(dhcp.dhcp(op=2,
+                                             chaddr=disc_eth.src,
+                                             # htype=1,
+                                             # flags=1,
+                                             siaddr=cls.dhcp_server,
+                                             boot_file=disc.boot_file,
+                                             yiaddr=disc.yiaddr,  # no available ip
+                                             # chaddr=cls.hardware_addr,
+                                             xid=disc.xid,
+                                             # sname=cls.dns,
+                                             options=options))
+        else:
+            offer_pkt.add_protocol(dhcp.dhcp(op=2,
+                                             chaddr=disc_eth.src,
+                                             # htype=1,
+                                             # flags=1,
+                                             siaddr=cls.dhcp_server,
+                                             boot_file=disc.boot_file,
+                                             yiaddr=cls.ip_pool.pop(0),  # ip allocated
+                                             # chaddr=cls.hardware_addr,
+                                             xid=disc.xid,
+                                             # sname=cls.dns,
+                                             options=options))
+        print("offeryou", str(offer_pkt))
+        cls.ip_pool.sort()
+        # maybe we should not modify start_ip
+        # # not full, ip++
+        # if cls.start_ip != cls.end_ip:
+        #     arr = cls.start_ip.split('.')
+        #     num = int(''.join(arr[3]))
+        #     length = len(arr[3])
+        #     num = num + 1
+        #     cls.start_ip = cls.start_ip[:-length] + str(num)
+
         return offer_pkt
 
     # 获取 DHCP 客户端状态，传入参数为 DHCP 协议头
@@ -159,8 +233,10 @@ class DHCPServer():
         # You may choose a valid IP from IP pool and genereate DHCP OFFER packet
         # Or generate a DHCP ACK packet
         # Finally send the generated packet to the host by using _send_packet method
+
         # print(dir(pkt))
         pkt_dhcp = pkt.get_protocols(dhcp.dhcp)[0]
+        print(pkt_dhcp)
         # if debug: print(type(pkt))
         # if debug: print(pkt_dhcp)
         dhcp_state = cls.get_state(cls, pkt_dhcp)
@@ -169,9 +245,9 @@ class DHCPServer():
         print(dhcp_state)
         if dhcp_state == 'DHCPDISCOVER':
             # 将交换机发送一个 DHCP Offer 消息给客户端
-            cls._send_packet(datapath, port, cls.assemble_offer(pkt,datapath))
+            cls._send_packet(datapath, port, cls.assemble_offer(pkt, datapath))
         elif dhcp_state == 'DHCPREQUEST':
-            cls._send_packet(datapath, port, cls.assemble_ack(pkt,datapath,port))
+            cls._send_packet(datapath, port, cls.assemble_ack(pkt, datapath, port))
         else:
             return
 
@@ -191,6 +267,3 @@ class DHCPServer():
                                   actions=actions,
                                   data=data)
         datapath.send_msg(out)
-
-
-
