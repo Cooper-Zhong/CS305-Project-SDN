@@ -210,7 +210,7 @@ class ControllerApp(app_manager.RyuApp):
         path_str = 'Path : '
         for switch in path:
             if switch == path[len(path)-1]:
-                path_str = path_str + 'switch_%s' %switch
+                path_str = path_str + 'switch_%s' % switch
             else:
                 path_str = path_str + 'switch_%s -> ' % switch
         print(path_str)
