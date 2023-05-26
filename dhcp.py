@@ -14,9 +14,9 @@ class Config():
     controller_macAddr = '7e:49:b3:f0:f9:99'  # don't modify, a dummy mac address for fill the mac enrty
     dns = '8.8.8.8'  # don't modify, just for the dns entry
 
-    start_ip = '192.168.1.2'  # can be modified
-    end_ip = '192.168.1.100'  # can be modified
-    netmask = '255.255.255.0'  # can be modified
+    start_ip = '192.168.1.10'  # can be modified
+    end_ip = '192.168.1.15'  # can be modified
+    netmask = '255.255.0.0'  # can be modified
     hostname = 'hostname'
     dhcp_server = '192.168.1.154'  # nono
     broadcast = '192.168.1.255'
@@ -63,7 +63,7 @@ class DHCPServer():
         print(requested_ip)
         netmask_option = dhcp.option(tag=1, value=socket.inet_aton(cls.netmask))
         broadcast_option = dhcp.option(tag=28, value=socket.inet_aton(cls.broadcast))
-        lease_time = 60
+        lease_time = 6000
         lease_time_option = dhcp.option(tag=51, value=lease_time.to_bytes(4, byteorder='big'))
         msg_type_option = dhcp.option(tag=53, value=binascii.a2b_hex('05'))
         options.option_list.insert(0, netmask_option)
@@ -127,9 +127,9 @@ class DHCPServer():
         # no 12
         # 在DHCP options的开头添加一个标记为xx的option，该option表示消息类型，值为2(表示DHCP Offer)
         # options.option_list.insert(
-            # 0, dhcp.option(tag=53, value='02'.decode('hex')))
-            # 0, dhcp.option(tag=53, value=bytes.fromhex('02')))
-            # 0, dhcp.option(tag=53, value=binascii.a2b_hex('02')))
+        # 0, dhcp.option(tag=53, value='02'.decode('hex')))
+        # 0, dhcp.option(tag=53, value=bytes.fromhex('02')))
+        # 0, dhcp.option(tag=53, value=binascii.a2b_hex('02')))
         # length=1 but 02?
         # options.option_list.insert(
         #     0, dhcp.option(tag=54, value=cls.dhcp_server.encode()))
@@ -142,9 +142,9 @@ class DHCPServer():
         dns = dhcp.option(tag=6, value=socket.inet_aton(cls.dns))
         # hostname = dhcp.option(tag=12, value=cls.hostname.encode())
         broadcast_option = dhcp.option(tag=28, value=socket.inet_aton(cls.broadcast))
-        lease_time = 60
+        lease_time = 6000
         lease_time_option = dhcp.option(tag=51, value=lease_time.to_bytes(4, byteorder='big'))
-        msg_type_option = dhcp.option(tag=53, value=binascii.a2b_hex('02')) # offer
+        msg_type_option = dhcp.option(tag=53, value=binascii.a2b_hex('02'))  # offer
 
         options.option_list.insert(0, netmask_option)
         options.option_list.insert(0, broadcast_option)
@@ -159,25 +159,40 @@ class DHCPServer():
         offer_pkt.add_protocol(ethernet.ethernet(ethertype=disc_eth.ethertype, dst=disc_eth.src, src=cls.hardware_addr))
         offer_pkt.add_protocol(ipv4.ipv4(dst=disc_ipv4.dst, src=cls.dhcp_server, proto=disc_ipv4.proto))
         offer_pkt.add_protocol(udp.udp(src_port=67, dst_port=68))
-        offer_pkt.add_protocol(dhcp.dhcp(op=2,
-                                         chaddr=disc_eth.src,
-                                         # htype=1,
-                                         # flags=1,
-                                         siaddr=cls.dhcp_server,
-                                         boot_file=disc.boot_file,
-                                         yiaddr=cls.start_ip, # ip allocated
-                                         # chaddr=cls.hardware_addr,
-                                         xid=disc.xid,
-                                         # sname=cls.dns,
-                                         options=options))
+        if cls.start_ip == cls.end_ip:  # no available ip
+            print("no available ip")
+            offer_pkt.add_protocol(dhcp.dhcp(op=2,
+                                             chaddr=disc_eth.src,
+                                             # htype=1,
+                                             # flags=1,
+                                             siaddr=cls.dhcp_server,
+                                             boot_file=disc.boot_file,
+                                             yiaddr=disc.yiaddr,  # not allocated
+                                             # chaddr=cls.hardware_addr,
+                                             xid=disc.xid,
+                                             # sname=cls.dns,
+                                             options=options))
+        else:
+            offer_pkt.add_protocol(dhcp.dhcp(op=2,
+                                             chaddr=disc_eth.src,
+                                             # htype=1,
+                                             # flags=1,
+                                             siaddr=cls.dhcp_server,
+                                             boot_file=disc.boot_file,
+                                             yiaddr=cls.start_ip,  # ip allocated
+                                             # chaddr=cls.hardware_addr,
+                                             xid=disc.xid,
+                                             # sname=cls.dns,
+                                             options=options))
         print("offeryou", str(offer_pkt))
 
-        # ip++
-        arr = cls.start_ip.split('.')
-        num = int(''.join(arr[3]))
-        length = len(arr[3])
-        num = num + 1
-        cls.start_ip = cls.start_ip[:-length] + str(num)
+        # not full, ip++
+        if cls.start_ip != cls.end_ip:
+            arr = cls.start_ip.split('.')
+            num = int(''.join(arr[3]))
+            length = len(arr[3])
+            num = num + 1
+            cls.start_ip = cls.start_ip[:-length] + str(num)
 
         return offer_pkt
 
