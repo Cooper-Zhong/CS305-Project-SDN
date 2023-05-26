@@ -35,6 +35,18 @@ class DHCPServer():
     hostname = Config.hostname
     dhcp_server = Config.dhcp_server
     broadcast = Config.broadcast
+    # get the ip pool
+    ip_pool = []
+    arr1 = start_ip.split('.')
+    begin = int(''.join(arr1[3]))
+    arr2 = end_ip.split('.')
+    end = int(''.join(arr2[3]))
+    for i in range(begin, end + 1):
+        ip = start_ip[:-len(arr1[3])] + str(i)
+        if ip not in ip_pool:
+            ip_pool.append(ip)
+    ip_pool.sort()
+    print(ip_pool)
 
     # routes = Config.routes
 
@@ -51,6 +63,7 @@ class DHCPServer():
         # Option 51（租约时间）改为 8640 秒（2 小时 24 分钟）
         # 客户端会根据响应消息的消息类型（Option 53）来确定接下来的步骤。
         # 将消息类型设置为 Acknowledge（5）可以让客户端知道它收到的是一个 DHCP Acknowledge 消息。
+        requested_ip = '0.0.0.0'
         options = req.options
         for i in options.option_list:
             if i.tag == 50:
@@ -159,7 +172,8 @@ class DHCPServer():
         offer_pkt.add_protocol(ethernet.ethernet(ethertype=disc_eth.ethertype, dst=disc_eth.src, src=cls.hardware_addr))
         offer_pkt.add_protocol(ipv4.ipv4(dst=disc_ipv4.dst, src=cls.dhcp_server, proto=disc_ipv4.proto))
         offer_pkt.add_protocol(udp.udp(src_port=67, dst_port=68))
-        if cls.start_ip == cls.end_ip:  # no available ip
+
+        if len(cls.ip_pool) == 0:  # no available ip
             print("no available ip")
             offer_pkt.add_protocol(dhcp.dhcp(op=2,
                                              chaddr=disc_eth.src,
@@ -167,7 +181,7 @@ class DHCPServer():
                                              # flags=1,
                                              siaddr=cls.dhcp_server,
                                              boot_file=disc.boot_file,
-                                             yiaddr=disc.yiaddr,  # not allocated
+                                             yiaddr=disc.yiaddr,  # no available ip
                                              # chaddr=cls.hardware_addr,
                                              xid=disc.xid,
                                              # sname=cls.dns,
@@ -179,20 +193,21 @@ class DHCPServer():
                                              # flags=1,
                                              siaddr=cls.dhcp_server,
                                              boot_file=disc.boot_file,
-                                             yiaddr=cls.start_ip,  # ip allocated
+                                             yiaddr=cls.ip_pool.pop(0),  # ip allocated
                                              # chaddr=cls.hardware_addr,
                                              xid=disc.xid,
                                              # sname=cls.dns,
                                              options=options))
         print("offeryou", str(offer_pkt))
-
-        # not full, ip++
-        if cls.start_ip != cls.end_ip:
-            arr = cls.start_ip.split('.')
-            num = int(''.join(arr[3]))
-            length = len(arr[3])
-            num = num + 1
-            cls.start_ip = cls.start_ip[:-length] + str(num)
+        cls.ip_pool.sort()
+        # maybe we should not modify start_ip
+        # # not full, ip++
+        # if cls.start_ip != cls.end_ip:
+        #     arr = cls.start_ip.split('.')
+        #     num = int(''.join(arr[3]))
+        #     length = len(arr[3])
+        #     num = num + 1
+        #     cls.start_ip = cls.start_ip[:-length] + str(num)
 
         return offer_pkt
 
