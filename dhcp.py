@@ -37,6 +37,7 @@ class DHCPServer():
     broadcast = Config.broadcast
     # get the ip pool
     ip_pool = []
+    ip_used = set()
     arr1 = start_ip.split('.')
     begin = int(''.join(arr1[3]))
     arr2 = end_ip.split('.')
@@ -187,19 +188,23 @@ class DHCPServer():
                                              # sname=cls.dns,
                                              options=options))
         else:
+            cls.ip_used.add(cls.ip_pool[0])
             offer_pkt.add_protocol(dhcp.dhcp(op=2,
                                              chaddr=disc_eth.src,
                                              # htype=1,
                                              # flags=1,
                                              siaddr=cls.dhcp_server,
                                              boot_file=disc.boot_file,
-                                             yiaddr=cls.ip_pool.pop(0),  # ip allocated
+                                             yiaddr=cls.ip_pool[0],  # ip allocated
                                              # chaddr=cls.hardware_addr,
                                              xid=disc.xid,
                                              # sname=cls.dns,
                                              options=options))
+            cls.ip_pool.pop(0)
+            cls.ip_pool.sort()
+
         print("offeryou", str(offer_pkt))
-        cls.ip_pool.sort()
+
         # maybe we should not modify start_ip
         # # not full, ip++
         # if cls.start_ip != cls.end_ip:
