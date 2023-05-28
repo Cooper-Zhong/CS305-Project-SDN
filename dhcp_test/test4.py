@@ -22,7 +22,7 @@ def send_arp(node, count=1):
 
 def send_dhcp(node):
     print('Sending DHCP request dhclient -v %s-eth0 ' % (node.name))
-    node.cmd('dhclient -v %s-eth0' % (node.name))
+    node.cmd('timeout 1s dhclient -v %s-eth0' % (node.name))
 
 
 def do_arp_all(net):
@@ -68,6 +68,7 @@ def run_mininet():
         disable_ipv6(h)
 
     net.start()
+    cnt=1
     for h in net.hosts:
         send_dhcp(h)
     CLI(net)
