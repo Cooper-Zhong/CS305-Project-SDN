@@ -49,6 +49,7 @@ class ControllerApp(app_manager.RyuApp):
         print(ev)
         switch = ev.switch
         self.network.add_node(switch.dp.id)
+        self.network.nodes.sort()
         self.update_topology()
 
     @set_ev_cls(event.EventSwitchLeave)
@@ -60,6 +61,7 @@ class ControllerApp(app_manager.RyuApp):
         print(ev)
         switch = ev.switch
         self.network.delete_node(switch.dp.id)
+        self.network.nodes.sort()
         self.update_topology()
 
     @set_ev_cls(event.EventHostAdd)
@@ -178,6 +180,9 @@ class ControllerApp(app_manager.RyuApp):
             self.network.dijkstra(node)
         #self.network.floyd()
 
+        self.print_topology()
+        print()
+
         for host in self.hosts:
             dst_mac = host.mac
             dst = host.port.dpid
@@ -200,6 +205,14 @@ class ControllerApp(app_manager.RyuApp):
                     continue
                 self.print_path(src, dst)
         print()
+
+    def print_topology(self):
+        for i in self.network.nodes:
+            s = ''
+            for j in self.network.nodes:
+                if self.network.edges[i][j] != -1 and self.network.port_on[i][self.network.port[i][j]]:
+                    s = s + 's%s:port_%s ' % (j, self.network.port[i][j])
+            print('s%s has link with ' % i + s)
 
     def print_path(self, src, dst):
         path, path_len = self.network.shortest_path(src, dst)
