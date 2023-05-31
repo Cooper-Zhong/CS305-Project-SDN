@@ -14,8 +14,8 @@ class Config():
     controller_macAddr = '7e:49:b3:f0:f9:99'  # don't modify, a dummy mac address for fill the mac enrty
     dns = '8.8.8.8'  # don't modify, just for the dns entry
 
-    start_ip = '192.168.1.2'  # can be modified
-    end_ip = '192.168.1.6'  # can be modified
+    start_ip = '192.168.1.10'  # can be modified
+    end_ip = '192.168.1.15'  # can be modified
     netmask = '255.255.255.0'  # can be modified
     hostname = 'hostname'
     dhcp_server = '192.168.1.154'  # nono
@@ -48,7 +48,7 @@ class DHCPServer():
         ip = start_ip[:-len(arr1[3])] + str(i)
         if ip not in ip_pool:
             ip_pool.append(ip)
-    ip_pool.sort()
+    # ip_pool.sort()
     print(ip_pool)
 
     # routes = Config.routes
@@ -168,7 +168,7 @@ class DHCPServer():
         offer_option = dhcp.option(tag=53, value=binascii.a2b_hex('02'))  # offer
         nak_option = dhcp.option(tag=53, value=binascii.a2b_hex('06'))  # nak
 
-        options.option_list.insert(0, offer_option)  # offer
+        # options.option_list.insert(0, offer_option)  # offer
         options.option_list.insert(0, netmask_option)
         options.option_list.insert(0, broadcast_option)
         options.option_list.insert(0, lease_time_option)
@@ -184,9 +184,21 @@ class DHCPServer():
 
         if not cls.has_available(cls):  # no available ip
             print("no available ip")
-            return None
+            options.option_list.insert(0, nak_option)  # NAK
+            offer_pkt.add_protocol(dhcp.dhcp(op=2,
+                                             chaddr=disc_eth.src,
+                                             # htype=1,
+                                             # flags=1,
+                                             siaddr=cls.dhcp_server,
+                                             boot_file=disc.boot_file,
+                                             yiaddr=disc.yiaddr,
+                                             # chaddr=cls.hardware_addr,
+                                             xid=disc.xid,
+                                             # sname=cls.dns,
+                                             options=options))
         else:
             cls.ip_used.add(cls.ip_pool[0])
+            options.option_list.insert(0, offer_option)  # OFFER
             offer_pkt.add_protocol(dhcp.dhcp(op=2,
                                              chaddr=disc_eth.src,
                                              # htype=1,
@@ -199,7 +211,7 @@ class DHCPServer():
                                              # sname=cls.dns,
                                              options=options))
             cls.ip_pool.pop(0)
-            cls.ip_pool.sort()
+            # cls.ip_pool.sort()
 
         print("offeryou", str(offer_pkt))
 
@@ -217,7 +229,7 @@ class DHCPServer():
         if released_ip in cls.ip_used:
             cls.ip_used.remove(released_ip)
             cls.ip_pool.append(released_ip)
-            cls.ip_pool.sort()
+            # cls.ip_pool.sort()
         else:
             print("ip not in used")
 
@@ -261,7 +273,7 @@ class DHCPServer():
         #                  (dhcp_state, pkt_dhcp))
         print(dhcp_state)
         if dhcp_state == 'DHCPDISCOVER':
-            if cls.has_available(cls):
+            # if cls.has_available(cls):
                 cls._send_packet(datapath, port, cls.assemble_offer(pkt, datapath))
                 # 将交换机发送一个 DHCP Offer 消息给客户端
                 # ignore discover packet when no available ip
